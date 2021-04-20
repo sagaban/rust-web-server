@@ -5,7 +5,10 @@ mod models;
 mod schema;
 
 use actix_files::Files;
-use actix_web::{web, App, Error, HttpResponse, HttpServer};
+use actix_web::{http, web, App, Error, HttpResponse, HttpServer};
+use awmp::Parts;
+
+use std::collections::HashMap;
 use std::env;
 use diesel::prelude::*;
 use diesel::pg::PgConnection;
@@ -47,6 +50,47 @@ async fn index(
     Ok(HttpResponse::Ok().body(body))
 }
 
+async fn add(
+    hb: web::Data<Handlebars<'_>>,
+) -> Result<HttpResponse, Error> {
+    let body = hb.render("add", &{}).unwrap();
+    Ok(HttpResponse::Ok().body(body))
+}
+
+async fn add_cat_form(
+    pool: web::Data<DbPool>,
+    mut parts: Parts,
+) -> Result<HttpResponse, Error> {
+    let file_path = parts
+        .files
+        .take("image")
+        .pop()
+        .and_then(|f| f.persist_in("./static/image").ok())
+        .unwrap_or_default();
+
+    let text_fields: HashMap<_, _> =
+        parts.texts.as_pairs().into_iter().collect();
+
+    let connection = pool.get().expect("Can't get db connection from pool");
+
+    let new_cat = NewCat {
+        name: text_fields.get("name").unwrap().to_string(),
+        image_path: file_path.to_string_lossy().to_string()
+    };
+
+    web::block(move ||
+        diesel::insert_into(cats)
+        .values(&new_cat)
+        .execute(&connection)
+    )
+    .await
+    .map_err(|_| {
+        HttpResponse::InternalServerError().finish()
+    })?;
+    // https://tools.ietf.org/html/rfc7231#section-6.4.4
+    Ok(HttpResponse::SeeOther().header(http::header::LOCATION, "/").finish())
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     let mut handlebars = Handlebars::new();
@@ -74,6 +118,8 @@ async fn main() -> std::io::Result<()> {
                     .show_files_listing(),
             )
             .route("/", web::get().to(index))
+            .route("/add", web::get().to(add))
+            .route("/add_cat_form", web::post().to(add_cat_form))
     })
     .bind("127.0.0.1:8080")?
     .run()

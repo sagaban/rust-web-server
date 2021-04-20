@@ -14,3 +14,4 @@ handlebars = { version = "3.0.1", features = ["dir_source"] }
 serde = "1.0.110"
 diesel = { version = "1.4.4", features = ["postgres", "r2d2"] }
 r2d2 = "0.8.8"
+awmp = "0.6.0"
